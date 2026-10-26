@@ -1,11 +1,15 @@
 # CI Operations
 
-[![Windows tests](https://github.com/axionaxprotocol/ci-operations/actions/workflows/ci.yml/badge.svg)](https://github.com/axionaxprotocol/ci-operations/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/axionaxprotocol/ci-operations/actions/workflows/codeql.yml/badge.svg)](https://github.com/axionaxprotocol/ci-operations/actions/workflows/codeql.yml)
-[![Latest release](https://img.shields.io/github/v/release/axionaxprotocol/ci-operations)](https://github.com/axionaxprotocol/ci-operations/releases/latest)
+[![Windows tests](https://github.com/nakharax/ci-operations/actions/workflows/ci.yml/badge.svg)](https://github.com/nakharax/ci-operations/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/nakharax/ci-operations/actions/workflows/codeql.yml/badge.svg)](https://github.com/nakharax/ci-operations/actions/workflows/codeql.yml)
+[![Latest release](https://img.shields.io/github/v/release/nakharax/ci-operations)](https://github.com/nakharax/ci-operations/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A local Windows desktop console for monitoring GitHub Actions runners and jobs. Includes first-run token setup, encrypted credential persistence, and a light, readable operations dashboard.
+
+**Current repository:** [`nakharax/ci-operations`](https://github.com/nakharax/ci-operations) · **Current published release checked:** [v1.4.0](https://github.com/nakharax/ci-operations/releases/tag/v1.4.0) (21 October 2026) · **Platform:** Windows · **License:** MIT.
+
+This is a **standalone local CI observability tool**, not the NakharaX Protocol runtime or the XpFirm customer product. It reads workflow metadata through permissions explicitly granted by the operator; it does not grant GitHub write permissions or auto-merge pull requests.
 
 ![CI Operations dashboard](docs/dashboard.png)
 
