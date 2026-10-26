@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const html = fs.readFileSync('index.html', 'utf8');
-const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+const script = html.match(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/i)[1];
 function page(state, history) {
   const elements = new Map();
   const element = id => {
