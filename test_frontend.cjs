@@ -3,7 +3,19 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const html = fs.readFileSync('index.html', 'utf8');
-const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+function extractInlineDashboardScript(markup) {
+  // The external fleet3d.js tag precedes the dashboard's actual inline script.
+  // Use exact tag delimiters instead of an HTML-matching regexp (CodeQL alert #3).
+  const openTag = '<script>';
+  const closeTag = '</script>';
+  const start = markup.indexOf(openTag);
+  assert.notEqual(start, -1, 'inline dashboard script opening tag missing');
+  const bodyStart = start + openTag.length;
+  const end = markup.indexOf(closeTag, bodyStart);
+  assert.notEqual(end, -1, 'inline dashboard script closing tag missing');
+  return markup.slice(bodyStart, end);
+}
+const script = extractInlineDashboardScript(html);
 function page(state, history) {
   const elements = new Map();
   const element = id => {
@@ -25,6 +37,17 @@ function page(state, history) {
   vm.runInContext(script.replace(/;load\(\);setInterval/, ';setInterval'), context);
   return {context, element, created};
 }
+test('frontend harness selects the inline script after the external fleet3d loader',()=>{
+ const sample = '<script src="fleet3d.js"></script>\n<script>function load(){} function loadHistory(){}</script>';
+ assert.equal(extractInlineDashboardScript(sample), 'function load(){} function loadHistory(){}');
+ assert.match(script, /async function load\(/);
+ assert.match(script, /async function loadHistory\(/);
+});
+test('frontend harness rejects missing inline script instead of running external code',()=>{
+ assert.throws(()=>extractInlineDashboardScript('<script src="fleet3d.js"></script>'), /inline dashboard script opening tag missing/);
+ assert.throws(()=>extractInlineDashboardScript('<script>unterminated'), /inline dashboard script closing tag missing/);
+});
+
 test('timestamps follow the viewer timezone instead of a hardcoded one',()=>{
  assert.ok(!html.includes('Asia/Bangkok'));
  assert.ok(!html.includes('UTC+07:00'));
