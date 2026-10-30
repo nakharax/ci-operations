@@ -1,0 +1,3 @@
+# Vercel serverless deployment requirements
+# Standard library only (no external pip dependencies needed)
+

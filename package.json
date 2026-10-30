@@ -1,0 +1,11 @@
+{
+  "name": "ci-operations-runner-console",
+  "private": true,
+  "version": "1.1.0",
+  "scripts": {
+    "dev": "python3 app.py",
+    "start": "python3 app.py",
+    "build": "node --test test_frontend.cjs test_fleet3d.cjs",
+    "lint": "python3 -m py_compile app.py ci_dashboard.py desktop_history.py"
+  }
+}

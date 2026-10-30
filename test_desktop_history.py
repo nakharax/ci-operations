@@ -60,6 +60,8 @@ class HistoryStoreTests(unittest.TestCase):
         self.assertEqual(summary['failed'], 1)
         self.assertEqual(summary['successes'], 1)
         self.assertEqual(summary['success_rate'], 50)
+        self.assertIn('trend', summary)
+        self.assertIsInstance(summary['trend'], list)
 
     def test_summary_without_data_has_no_success_rate(self):
         self.assertIsNone(self.store.summary()['success_rate'])

@@ -205,8 +205,52 @@ class HistoryStore:
                 f'SELECT * FROM steps WHERE job_key IN ({placeholders})', keys).fetchall()
         return [dict(row) for row in rows]
 
+    def _build_trend(self, jobs, since=None):
+        """Build chronological success-rate trend points across the requested window."""
+        if not jobs:
+            return []
+        from datetime import datetime, timezone
+        dated = []
+        for job in jobs:
+            ts = _timestamp(job.get('completed') or job.get('started') or job.get('created'))
+            if ts is None:
+                ts = float(job.get('recorded_at') or time.time())
+            dated.append((ts, job))
+        dated.sort(key=lambda item: item[0])
+        min_ts = since if since is not None else dated[0][0]
+        max_ts = max(dated[-1][0], time.time())
+        span = max(3600.0, max_ts - min_ts)
+        bucket_count = min(12, max(4, len(dated)))
+        step = span / bucket_count
+        multi_day = span > 48 * 3600
+        buckets = {}
+        for ts, job in dated:
+            idx = min(bucket_count - 1, max(0, int((ts - min_ts) / step)))
+            entry = buckets.setdefault(idx, {'total': 0, 'successes': 0, 'failed': 0, 'ts': min_ts + (idx + 0.5) * step})
+            entry['total'] += 1
+            if job.get('conclusion') == 'success':
+                entry['successes'] += 1
+            elif job.get('conclusion') in FAILED_CONCLUSIONS:
+                entry['failed'] += 1
+            entry['ts'] = ts
+        trend = []
+        for idx in sorted(buckets.keys()):
+            b = buckets[idx]
+            dt = datetime.fromtimestamp(b['ts'], tz=timezone.utc)
+            label = dt.strftime('%b %d') if multi_day else dt.strftime('%H:%M')
+            rate = round(b['successes'] / b['total'] * 100) if b['total'] else 0
+            trend.append({
+                'time': dt.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                'label': label,
+                'success_rate': rate,
+                'total': b['total'],
+                'successes': b['successes'],
+                'failed': b['failed'],
+            })
+        return trend
+
     def summary(self, since=None):
-        """Aggregate success rate, failure counts, and the worst failing steps."""
+        """Aggregate success rate, failure counts, trend, and the worst failing steps."""
         jobs = self.jobs(since=since, limit=100000)
         total = len(jobs)
         failures = [job for job in jobs if job.get('conclusion') in FAILED_CONCLUSIONS]
@@ -240,6 +284,7 @@ class HistoryStore:
             'p95_duration_ms': durations[min(len(durations) - 1, int(len(durations) * 0.95))] if durations else None,
             'workflows': workflows,
             'failing_steps': failing_steps[:10],
+            'trend': self._build_trend(jobs, since=since),
             'generated_at': time.time(),
         }
 

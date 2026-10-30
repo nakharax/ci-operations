@@ -27,7 +27,7 @@ function page(state, history) {
     getElementById: element,
     querySelectorAll: () => [],
     createElement: tag => {const node = {tag, click(){}, remove(){}}; created.push(node); return node;},
-    body: {appendChild(){}, removeChild(){}},
+    body: {style:{}, appendChild(){}, removeChild(){}},
   };
   const context = vm.createContext({document,window:{},Date,Map,Set,URL,AbortSignal,encodeURIComponent,setInterval(){},setTimeout(){},clearTimeout(){},
     fetch:async(url,options)=>{
@@ -211,3 +211,74 @@ test('failed refresh is visible and keeps previously rendered content', async()=
   assert.equal(p.element('runners').innerHTML,before);
   assert.ok(p.element('connection').textContent.includes('failed'));
 });
+
+test('tablet and mobile viewports use an off-canvas sidebar drawer and keep repository scope accessible', async()=>{
+  const css=html.match(/<style>([\s\S]*?)<\/style>/)[1];
+  assert.ok(!css.includes('.workspace-switcher,.side-foot,.nav-group-title{display:none}'));
+  assert.match(html, /id="mobile-overlay"/);
+  const p=page({runners:[],jobs:[]});
+  p.context.window.innerWidth=768;
+  assert.equal(vm.runInContext('isMobileViewport()',p.context),true);
+  vm.runInContext('setMobileNav(true)',p.context);
+  assert.equal(p.element('mobile-overlay').hidden,false);
+  assert.ok(p.element('app-shell').className.includes('mobile-nav-open'));
+  vm.runInContext('setMobileNav(false)',p.context);
+  assert.equal(p.element('mobile-overlay').hidden,true);
+});
+test('drawer close button, sidebar brand lockup, and settings drawer prevent text overlap and lock body scroll', async()=>{
+  const css=html.match(/<style>([\s\S]*?)<\/style>/)[1];
+  assert.match(css, /\.drawer-close\{[^}]*white-space:nowrap[^}]*flex-shrink:0/);
+  assert.match(css, /\.brand-text strong\{[^}]*overflow:hidden;text-overflow:ellipsis/);
+  assert.match(css, /\.sidebar-hide-btn\{[^}]*flex-shrink:0/);
+  const p=page({runners:[],jobs:[{repo:'o/r',name:'build',status:'in_progress',started:'2026-04-17T10:00:00Z'}]});
+  await vm.runInContext('load()',p.context);
+  vm.runInContext('openSettings()',p.context);
+  assert.ok(p.element('settings-drawer').className.includes('open'));
+  assert.equal(p.context.document.body.style.overflow,'hidden');
+  vm.runInContext('openJobInspector(S.jobs[0])',p.context);
+  assert.ok(!p.element('settings-drawer').className.includes('open'));
+  assert.ok(p.element('job-inspector').className.includes('open'));
+  assert.equal(p.context.document.body.style.overflow,'hidden');
+  vm.runInContext('closeJobInspector()',p.context);
+  assert.equal(p.context.document.body.style.overflow,'');
+});
+test('status distribution panel prevents count badge wrapping and legend percentage clipping', async()=>{
+  const css=html.match(/<style>([\s\S]*?)<\/style>/)[1];
+  assert.match(css, /\.count\{[^}]*white-space:nowrap[^}]*flex-shrink:0/);
+  assert.match(css, /\.panel-head\{[^}]*flex-wrap:wrap/);
+  assert.match(css, /\.status-panel\{container-type:inline-size\}/);
+  assert.match(css, /\.donut-legend-value\{[^}]*white-space:nowrap;flex-shrink:0/);
+  const p=page({
+    runners:[],
+    jobs:[
+      {repo:'o/r',name:'j1',status:'completed',conclusion:'success'},
+      {repo:'o/r',name:'j2',status:'completed',conclusion:'failure'},
+      {repo:'o/r',name:'j3',status:'in_progress'},
+      {repo:'o/r',name:'j4',status:'queued'},
+      {repo:'o/r',name:'j5',status:'completed',conclusion:'cancelled'}
+    ]
+  });
+  await vm.runInContext('load()',p.context);
+  assert.equal(p.element('status-total-count').textContent,'5 JOBS');
+  const legendHtml=p.element('status-donut-legend').innerHTML;
+  assert.ok(legendHtml.includes('Success'));
+  assert.ok(legendHtml.includes('Cancelled'));
+  assert.ok(legendHtml.includes('(20%)'));
+});
+test('recent executions table prevents right-edge clipping of Inspect buttons', async()=>{
+  const css=html.match(/<style>([\s\S]*?)<\/style>/)[1];
+  assert.ok(!css.includes('table{border-collapse:collapse;width:100%;font-size:14px;white-space:nowrap}'));
+  assert.match(css, /th:last-child,td:last-child\{padding-right:20px;text-align:right;white-space:nowrap;width:1%\}/);
+  assert.match(css, /\.job-cell\{min-width:160px;white-space:normal;overflow-wrap:anywhere\}/);
+  assert.match(css, /\.inspect-link\{[^}]*white-space:nowrap[^}]*flex-shrink:0/);
+});
+test('appearance control uses only the Soft Aurora theme', async()=>{
+  const themeSelectBlock=html.match(/<select id="theme-select"[\s\S]*?<\/select>/)[0];
+  assert.match(themeSelectBlock, /<option value="aurora">Soft Aurora<\/option>/);
+  assert.doesNotMatch(themeSelectBlock, /value="light"|value="dark"/);
+  const p=page({runners:[],jobs:[]});
+  vm.runInContext('applyTheme("dark")',p.context);
+  assert.equal(vm.runInContext('currentTheme',p.context),'aurora');
+  assert.equal(p.element('theme-select').value,'aurora');
+});
+

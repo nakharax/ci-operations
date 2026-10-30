@@ -1,0 +1,5 @@
+{
+  "name": "CI Operations · Runner Console",
+  "description": "Modern observability console for GitHub Actions runner fleets, live execution queues, 3D spatial job volumes, and step-level reliability.",
+  "requestFramePermissions": []
+}

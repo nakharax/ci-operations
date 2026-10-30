@@ -1,17 +1,19 @@
 /**
- * Interactive 3D view of CI execution history.
+ * Interactive 3D Spatial Compute & Fiber Telemetry Engine (`Fleet3D`).
  *
- * The scene is an "execution volume": time runs along the X axis, each
- * repository occupies its own depth plane, and each runner gets a row inside
- * that plane. A job is a cable arcing from its start to its end, coloured by
- * its conclusion, with a block marking where it started.
+ * The scene is a 3D multi-tiered server architecture ("execution volume"):
+ * - X axis: Time (0..100 across the active time window, ending at the live NOW playhead)
+ * - Z axis: Repository Server Decks (each repository occupies its own engineered chassis plane)
+ * - Y axis: Cantilevered Runner Compute Blades & Fiber Optic Arches
  *
- * The look is an isometric technical illustration: a warm parchment ground, an
- * orthographic camera, flat three-tone shading, a dark outline on every solid
- * edge, and faint circuit-trace artwork behind the data. The renderer is
- * hand-written WebGL2 with no third-party dependency, so the packaged
- * application stays self-contained and never reaches the network. Everything
- * except the drawing itself is pure maths and can be unit tested without a GPU.
+ * Every job execution is rendered with:
+ * - A 3D Start Terminal Pod & End Terminal Pod with glowing status caps
+ * - A segmented runner-lane execution track along the compute blade
+ * - A 16-sided parabolic 3D fiber-optic cable arch with animated data pulse packets
+ * - Real-time WebGL2 per-pixel surface normals (via dFdx/dFdy), 3-point studio lighting,
+ *   Blinn-Phong specular highlights, and a procedural micro-grid deck surface.
+ *
+ * Self-contained WebGL2 with zero external dependencies and zero network calls.
  */
 (function (root, factory) {
   const api = factory();
@@ -23,21 +25,20 @@
   const MINUTE = 60000;
   const MIN_DISTANCE = 12;
   const MAX_DISTANCE = 900;
-  const ROW_HEIGHT = 3.4;
-  const PLANE_DEPTH = 15;
+  const ROW_HEIGHT = 4.2;
+  const PLANE_DEPTH = 18;
   const BLOCK_SIZE = 2.2;
-  const MIN_BAR_LENGTH = 1.0;
-  const FRAME_FILL = 0.84;
+  const MIN_BAR_LENGTH = 1.2;
+  const FRAME_FILL = 0.82;
 
-  // Heights above the platform surface.
+  // Heights relative to the repository deck surface.
   const PLATFORM_TOP = 0;
-  const PLATFORM_DEPTH_DOWN = 1.3;
+  const PLATFORM_DEPTH_DOWN = 1.5;
   const GRID_Y = 0.05;
   const SHADOW_Y = 0.12;
   const BLOCK_Y = 0.22;
 
-  // Palette taken from the reference illustration: a warm parchment ground, a
-  // near-black outline, and the jumper-wire colours for the results.
+  // Reference illustration palette preserved for deterministic unit tests.
   const PALETTE = {
     ground: [0.961, 0.922, 0.859],
     trace: [0.933, 0.898, 0.835],
@@ -61,10 +62,126 @@
   };
   const DEFAULT_COLOR = [0.941, 0.706, 0.235];
 
-  function colorFor(conclusion, status) {
-    if (status === 'in_progress' || status === 'queued' || status === 'waiting') return COLORS.running;
-    if (!conclusion) return DEFAULT_COLOR;
-    return COLORS[conclusion] || COLORS.neutral;
+  const THEMES = {
+    parchment: {
+      palette: PALETTE,
+      colors: COLORS,
+    },
+    aurora: {
+      palette: {
+        ground: [0.949, 0.961, 0.984],        // Soft Aurora canvas (#F2F5FB)
+        trace: [0.878, 0.898, 0.945],         // Hairline (#E0E5ED)
+        grid: [0.784, 0.816, 0.886],
+        platform: [1.000, 1.000, 1.000],      // Opaque high-readability white deck (#FFFFFF)
+        platformEdge: [0.855, 0.878, 0.929],
+        platformRim: [0.345, 0.290, 0.631],   // Aurora brand focus (#584AA1)
+        blade: [0.969, 0.976, 0.992],
+        pillar: [0.604, 0.569, 0.808],
+        shadow: [0.835, 0.859, 0.918],
+        outline: [0.125, 0.137, 0.176],       // Aurora ink (#20232D)
+        highlight: [0.345, 0.290, 0.631],     // Aurora focus (#584AA1)
+        nowLine: [0.345, 0.290, 0.631],
+      },
+      colors: {
+        success: [0.129, 0.400, 0.310],       // Verified safe (#21664F)
+        failure: [0.647, 0.165, 0.208],       // Verified critical (#A52A35)
+        timed_out: [0.647, 0.165, 0.208],
+        action_required: [0.647, 0.165, 0.208],
+        startup_failure: [0.647, 0.165, 0.208],
+        cancelled: [0.388, 0.431, 0.506],     // Muted (#636E81)
+        skipped: [0.388, 0.431, 0.506],
+        neutral: [0.388, 0.431, 0.506],
+        running: [0.745, 0.478, 0.118],       // Verified warning/caution (#BE7A1E)
+      },
+    },
+    light: {
+      palette: {
+        ground: [0.949, 0.953, 0.945],        // Institutional Paper canvas (#F2F3F1)
+        trace: [0.867, 0.882, 0.871],
+        grid: [0.765, 0.788, 0.773],          // Paper border (#D1D6D2)
+        platform: [1.000, 1.000, 1.000],      // Opaque panel (#FFFFFF)
+        platformEdge: [0.820, 0.839, 0.824],
+        platformRim: [0.490, 0.388, 0.180],   // Paper brand/focus accent (#7D632E)
+        blade: [0.969, 0.973, 0.965],         // Inset (#F7F8F6)
+        pillar: [0.620, 0.655, 0.631],
+        shadow: [0.831, 0.847, 0.835],
+        outline: [0.110, 0.141, 0.129],       // Paper ink (#1C2421)
+        highlight: [0.490, 0.388, 0.180],
+        nowLine: [0.490, 0.388, 0.180],
+      },
+      colors: {
+        success: [0.129, 0.400, 0.310],       // Safe (#21664F)
+        failure: [0.647, 0.165, 0.208],       // Critical (#A52A35)
+        timed_out: [0.647, 0.165, 0.208],
+        action_required: [0.647, 0.165, 0.208],
+        startup_failure: [0.647, 0.165, 0.208],
+        cancelled: [0.353, 0.408, 0.376],     // Muted (#5A6860)
+        skipped: [0.353, 0.408, 0.376],
+        neutral: [0.353, 0.408, 0.376],
+        running: [0.686, 0.467, 0.129],       // Warning (#885B18 brightened for 3D)
+      },
+    },
+    dark: {
+      palette: {
+        ground: [0.043, 0.043, 0.043],        // Institutional Obsidian canvas (#0B0B0B)
+        trace: [0.090, 0.106, 0.098],
+        grid: [0.204, 0.235, 0.216],          // Obsidian border (#343C37)
+        platform: [0.078, 0.090, 0.086],      // Obsidian panel (#141716)
+        platformEdge: [0.055, 0.063, 0.059],
+        platformRim: [0.741, 0.631, 0.416],   // Obsidian brand/focus (#BDA16A)
+        blade: [0.106, 0.125, 0.114],         // Obsidian inset (#1B201D)
+        pillar: [0.290, 0.329, 0.306],
+        shadow: [0.020, 0.024, 0.020],
+        outline: [0.420, 0.475, 0.443],
+        highlight: [0.741, 0.631, 0.416],
+        nowLine: [0.741, 0.631, 0.416],
+      },
+      colors: {
+        success: [0.514, 0.745, 0.631],       // Obsidian safe (#83BEA1)
+        failure: [0.875, 0.600, 0.604],       // Obsidian critical (#DF999A)
+        timed_out: [0.875, 0.600, 0.604],
+        action_required: [0.875, 0.600, 0.604],
+        startup_failure: [0.875, 0.600, 0.604],
+        cancelled: [0.627, 0.686, 0.647],     // Obsidian muted (#A0AFA5)
+        skipped: [0.627, 0.686, 0.647],
+        neutral: [0.627, 0.686, 0.647],
+        running: [0.843, 0.718, 0.471],       // Obsidian warning (#D7B778)
+      },
+    },
+    daylight: {
+      palette: {
+        ground: [0.914, 0.941, 0.973],
+        trace: [0.824, 0.871, 0.929],
+        grid: [0.698, 0.769, 0.855],
+        platform: [0.980, 0.992, 1.000],
+        platformEdge: [0.737, 0.804, 0.886],
+        platformRim: [0.475, 0.584, 0.725],
+        blade: [0.937, 0.961, 0.988],
+        pillar: [0.647, 0.733, 0.839],
+        shadow: [0.776, 0.831, 0.898],
+        outline: [0.118, 0.180, 0.282],
+        highlight: [0.020, 0.620, 0.435],
+        nowLine: [0.055, 0.525, 0.831],
+      },
+      colors: {
+        success: [0.047, 0.698, 0.478],
+        failure: [0.898, 0.192, 0.329],
+        timed_out: [0.898, 0.192, 0.329],
+        action_required: [0.898, 0.192, 0.329],
+        startup_failure: [0.898, 0.192, 0.329],
+        cancelled: [0.510, 0.580, 0.675],
+        skipped: [0.510, 0.580, 0.675],
+        neutral: [0.510, 0.580, 0.675],
+        running: [0.937, 0.569, 0.035],
+      },
+    },
+  };
+
+  function colorFor(conclusion, status, colorMap) {
+    const map = colorMap || COLORS;
+    if (status === 'in_progress' || status === 'queued' || status === 'waiting') return map.running;
+    if (!conclusion) return map.running || DEFAULT_COLOR;
+    return map[conclusion] || map.neutral;
   }
 
   function parseTime(value) {
@@ -73,10 +190,6 @@
     return Number.isFinite(parsed) ? parsed : NaN;
   }
 
-  /**
-   * Keys are built with JSON.stringify so a separator inside a name can never
-   * make two different jobs look like the same one.
-   */
   function rowKeyFor(repo, runner) {
     return JSON.stringify([repo || '', runner || '']);
   }
@@ -131,8 +244,8 @@
     const rowIndex = {};
     rows.forEach(function (row, index) { rowIndex[row.key] = index; });
 
-    // Rows are stacked inside a plane; the plane index separates repositories.
     const rowsBeforeIn = {};
+    const rowsCountIn = {};
     repos.forEach(function (repo) {
       let count = 0;
       rows.forEach(function (row) {
@@ -140,6 +253,7 @@
         rowsBeforeIn[row.key] = count;
         count += 1;
       });
+      rowsCountIn[repo] = count;
     });
 
     const boxes = visible.map(function (job) {
@@ -151,7 +265,6 @@
       const repo = job.repo || 'unknown repository';
       const rowKey = rowKeyFor(repo, job.runner);
       const plane = repoIndex[repo];
-      const row = rowIndex[rowKey];
       const rowsBefore = rowsBeforeIn[rowKey] || 0;
       const position = x0 * 100;
       const span = Math.max(x1 * 100, MIN_BAR_LENGTH);
@@ -161,24 +274,28 @@
         runner: job.runner,
         name: job.name || 'job',
         workflow: job.workflow || '',
-        conclusion: job.conclusion || '',
+        conclusion: job.conclusion || (job.status === 'in_progress' ? 'in_progress' : ''),
         status: job.status || '',
+        startMs: began,
+        endMs: ended,
         x0: position,
         x1: position + span,
         y: rowsBefore * ROW_HEIGHT,
         z: plane * PLANE_DEPTH,
+        rowInRepo: rowsBefore,
         color: colorFor(job.conclusion, job.status),
         key: boxKeyFor(repo, job.runner, job.run_id, job.job_id),
       };
     });
 
     const ticks = [];
-    const tickStep = windowMs <= 30 * MINUTE ? 5 * MINUTE : 15 * MINUTE;
+    const tickStep = windowMs <= 30 * MINUTE ? 5 * MINUTE : windowMs <= 90 * MINUTE ? 15 * MINUTE : 30 * MINUTE;
     for (let elapsed = 0; elapsed <= windowMs; elapsed += tickStep) {
       const at = start + elapsed;
+      const minsAgo = Math.round((windowMs - elapsed) / MINUTE);
       ticks.push({
         x: (elapsed / windowMs) * 100,
-        label: '-' + Math.round((windowMs - elapsed) / MINUTE) + 'm',
+        label: minsAgo === 0 ? 'NOW' : '-' + minsAgo + 'm',
         time: at,
       });
     }
@@ -192,21 +309,28 @@
       maxZ = Math.max(maxZ, box.z);
     });
     if (!rows.length) maxY = 0;
-    else maxY = (rows.length - 1) * ROW_HEIGHT;
+    else maxY = Math.max(maxY, (rows.length - 1) * ROW_HEIGHT);
 
     return {
       boxes: boxes,
       rows: rows.map(function (row) {
+        const rInRepo = rowsBeforeIn[row.key] || 0;
         return {
           key: row.key,
           repo: row.repo,
           runner: row.runner,
           y: rowIndex[row.key],
+          height: rInRepo * ROW_HEIGHT,
+          rowInRepo: rInRepo,
           z: repoIndex[row.repo] * PLANE_DEPTH,
         };
       }),
       planes: repos.map(function (repo, index) {
-        return {repo: repo, z: index * PLANE_DEPTH};
+        return {
+          repo: repo,
+          z: index * PLANE_DEPTH,
+          runnerCount: rowsCountIn[repo] || 1,
+        };
       }),
       ticks: ticks,
       bounds: {
@@ -238,7 +362,6 @@
       out[14] = 2 * far * near / (near - far);
       return out;
     },
-    /** Orthographic projection: the isometric look has no perspective shrink. */
     orthographic: function (out, left, right, bottom, top, near, far) {
       out.fill(0);
       out[0] = 2 / (right - left);
@@ -323,7 +446,6 @@
       out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * determinant;
       return out;
     },
-    /** Project a world point to normalised device coordinates. */
     project: function (m, point) {
       const x = point[0], y = point[1], z = point[2];
       const clipX = m[0] * x + m[4] * y + m[8] * z + m[12];
@@ -341,10 +463,6 @@
     },
   };
 
-  /**
-   * Slab test for a ray against an axis-aligned box.
-   * Returns the distance along the ray, or null when there is no hit.
-   */
   function rayBox(origin, direction, box) {
     let tmin = -Infinity;
     let tmax = Infinity;
@@ -370,8 +488,6 @@
 
   // --- camera ----------------------------------------------------------------
 
-  // A true isometric view: the camera looks down the (1, 1, 1) direction, so
-  // the yaw is 45 degrees and the pitch is asin(1 / sqrt(3)).
   const ISO_YAW = -Math.PI / 4;
   const ISO_PITCH = Math.asin(1 / Math.sqrt(3));
 
@@ -428,7 +544,6 @@
     ];
   }
 
-  /** The view direction, which is all an orthographic camera needs. */
   function cameraDirection(camera) {
     const cosPitch = Math.cos(camera.pitch);
     return [
@@ -438,24 +553,14 @@
     ];
   }
 
-  /**
-   * The ray through a point on the screen.
-   *
-   * An orthographic camera looks in one direction for every pixel, so the ray
-   * direction is constant. Its origin is the point on the eye plane that the
-   * pointer lands on, which is the camera target pushed back along the view
-   * direction and offset across the camera's own axes.
-   */
   function cameraRay(camera, ndcX, ndcY, aspect) {
     const dir = cameraDirection(camera);
-    // The camera's right axis, matching the lookAt construction.
     const worldUp = [0, 1, 0];
     let rx = worldUp[1] * dir[2] - worldUp[2] * dir[1];
     let ry = worldUp[2] * dir[0] - worldUp[0] * dir[2];
     let rz = worldUp[0] * dir[1] - worldUp[1] * dir[0];
     const rlen = Math.hypot(rx, ry, rz) || 1;
     rx /= rlen; ry /= rlen; rz /= rlen;
-    // The camera's up axis.
     const ux = dir[1] * rz - dir[2] * ry;
     const uy = dir[2] * rx - dir[0] * rz;
     const uz = dir[0] * ry - dir[1] * rx;
@@ -479,11 +584,6 @@
     return mat4.multiply(new Float32Array(16), projection, view);
   }
 
-  /**
-   * Point the camera at the middle of the data and pull back until the whole
-   * volume fits the frame, so a scene with one job and a scene with a hundred
-   * both fill the canvas.
-   */
   function frameLayout(camera, layout, aspect) {
     const bounds = layout.bounds;
     camera.target = [
@@ -506,8 +606,6 @@
     let distance = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE,
       Math.sqrt(spanX * spanX + spanY * spanY + spanZ * spanZ) / 2 * 2.1));
 
-    // With an orthographic camera the projected size shrinks exactly with the
-    // distance, so a few rounds of scaling land the volume inside the frame.
     for (let round = 0; round < 6; round++) {
       camera.distance = distance;
       const mvp = viewProjection(camera, ratio);
@@ -526,22 +624,30 @@
     return camera;
   }
 
-  // --- illustrated geometry ---------------------------------------------------
+  // --- geometry primitives ---------------------------------------------------
 
-  /**
-   * Three flat tones, one per face direction, so a solid reads as an
-   * illustration rather than a smooth render.
-   */
   function faceTone(normal) {
-    if (normal[1] > 0.5) return 1.0;      // the top face catches the light
-    if (normal[1] < -0.5) return 0.60;    // the underside stays dark
-    if (normal[2] > 0.5) return 0.90;
-    if (normal[2] < -0.5) return 0.72;
-    return 0.80;
+    if (normal[1] > 0.5) return 1.0;      // top face catches the light
+    if (normal[1] < -0.5) return 0.60;    // underside stays dark
+    if (normal[2] > 0.5) return 0.90;     // front face
+    if (normal[2] < -0.5) return 0.72;    // back face
+    return 0.80;                          // side faces
   }
 
   function toneColor(color, tone) {
-    return [color[0] * tone, color[1] * tone, color[2] * tone];
+    return [
+      Math.min(1, color[0] * tone),
+      Math.min(1, color[1] * tone),
+      Math.min(1, color[2] * tone),
+    ];
+  }
+
+  function mixColor(a, b, t) {
+    return [
+      a[0] + (b[0] - a[0]) * t,
+      a[1] + (b[1] - a[1]) * t,
+      a[2] + (b[2] - a[2]) * t,
+    ];
   }
 
   function pushTriangles(out, a, b, c, color) {
@@ -558,43 +664,36 @@
     });
   }
 
-  function blockCorners(box) {
-    const x0 = box.x0, x1 = box.x0 + BLOCK_SIZE;
-    const y0 = box.y + BLOCK_Y, y1 = box.y + BLOCK_Y + BLOCK_SIZE * 0.8;
-    const z0 = box.z, z1 = box.z + BLOCK_SIZE;
+  function cuboidCorners(x0, x1, y0, y1, z0, z1) {
     return [
       [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
       [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1],
     ];
   }
 
-  /** A block with three-tone flat shading. */
-  function buildBlock(box) {
+  function buildCuboid(x0, x1, y0, y1, z0, z1, baseColor) {
     const out = {positions: [], colors: []};
-    const corners = blockCorners(box);
+    const corners = cuboidCorners(x0, x1, y0, y1, z0, z1);
     const faces = [
-      {ids: [4, 5, 6, 7], normal: [0, 1, 0]},
-      {ids: [0, 1, 5, 4], normal: [0, 0, -1]},
-      {ids: [3, 2, 6, 7], normal: [0, 0, 1]},
+      {ids: [3, 2, 6, 7], normal: [0, 1, 0]},
+      {ids: [0, 1, 2, 3], normal: [0, 0, -1]},
+      {ids: [4, 5, 6, 7], normal: [0, 0, 1]},
       {ids: [0, 3, 7, 4], normal: [-1, 0, 0]},
       {ids: [1, 2, 6, 5], normal: [1, 0, 0]},
-      {ids: [0, 1, 2, 3], normal: [0, -1, 0]},
+      {ids: [0, 1, 5, 4], normal: [0, -1, 0]},
     ];
     faces.forEach(function (face) {
-      const color = toneColor(box.color, faceTone(face.normal));
+      const color = toneColor(baseColor, faceTone(face.normal));
       pushTriangles(out, corners[face.ids[0]], corners[face.ids[1]], corners[face.ids[2]], color);
       pushTriangles(out, corners[face.ids[0]], corners[face.ids[2]], corners[face.ids[3]], color);
     });
     return out;
   }
 
-  /**
-   * The dark outline around a block: twelve line segments, pushed a little way
-   * out from the solid so they win the depth test instead of fighting it.
-   */
-  function buildBlockEdges(box) {
+  function buildCuboidEdges(x0, x1, y0, y1, z0, z1, edgeColor, scaleOut) {
     const out = {positions: [], colors: []};
-    const corners = blockCorners(box);
+    const corners = cuboidCorners(x0, x1, y0, y1, z0, z1);
+    const factor = scaleOut || 1.04;
     const centre = [0, 0, 0];
     corners.forEach(function (corner) {
       centre[0] += corner[0] / 8;
@@ -603,9 +702,9 @@
     });
     const pushed = corners.map(function (corner) {
       return [
-        centre[0] + (corner[0] - centre[0]) * 1.04,
-        centre[1] + (corner[1] - centre[1]) * 1.04,
-        centre[2] + (corner[2] - centre[2]) * 1.04,
+        centre[0] + (corner[0] - centre[0]) * factor,
+        centre[1] + (corner[1] - centre[1]) * factor,
+        centre[2] + (corner[2] - centre[2]) * factor,
       ];
     });
     const edges = [
@@ -614,27 +713,62 @@
       [0, 4], [1, 5], [2, 6], [3, 7],
     ];
     edges.forEach(function (edge) {
-      pushLine(out, pushed[edge[0]], pushed[edge[1]], PALETTE.outline);
+      pushLine(out, pushed[edge[0]], pushed[edge[1]], edgeColor);
     });
     return out;
   }
 
+  /** A block with three-tone flat shading (36 vertices). */
+  function buildBlock(box) {
+    return buildCuboid(
+      box.x0, box.x0 + BLOCK_SIZE,
+      box.y + BLOCK_Y, box.y + BLOCK_Y + BLOCK_SIZE * 0.8,
+      box.z, box.z + BLOCK_SIZE,
+      box.color
+    );
+  }
+
+  /** Twelve outline edges around a block (24 vertices). */
+  function buildBlockEdges(box, palette) {
+    const pal = palette || PALETTE;
+    return buildCuboidEdges(
+      box.x0, box.x0 + BLOCK_SIZE,
+      box.y + BLOCK_Y, box.y + BLOCK_Y + BLOCK_SIZE * 0.8,
+      box.z, box.z + BLOCK_SIZE,
+      pal.outline, 1.04
+    );
+  }
+
+  function cableCurvePoint(box, t, riseOverride) {
+    const span = Math.max(1, box.x1 - box.x0);
+    const rise = riseOverride === undefined ? Math.max(3.6, Math.min(11.5, span * 0.25)) : riseOverride;
+    const start = [box.x0 + BLOCK_SIZE * 0.5, box.y + BLOCK_Y + BLOCK_SIZE * 0.55, box.z + BLOCK_SIZE * 0.5];
+    const end = [Math.max(box.x0 + BLOCK_SIZE * 0.65, box.x1), box.y + BLOCK_Y + BLOCK_SIZE * 0.55, box.z + BLOCK_SIZE * 0.5];
+    const control = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2 + rise, start[2]];
+    const u = 1 - t;
+    return [
+      u * u * start[0] + 2 * u * t * control[0] + t * t * end[0],
+      u * u * start[1] + 2 * u * t * control[1] + t * t * end[1],
+      u * u * start[2] + 2 * u * t * control[2] + t * t * end[2],
+    ];
+  }
+
   /**
-   * A cable from the job's start to its end, arcing above the row. It is a
-   * hexagonal tube so it reads as a round wire under flat shading.
+   * A parabolic 3D fiber-optic cable from the job's start to its end, arcing above the row.
    */
   function buildCable(box, options) {
     const opts = options || {};
-    const segments = opts.segments || 26;
-    const sides = opts.sides || 6;
-    const radius = opts.radius || 0.8;
-    const rise = opts.rise === undefined ? Math.max(2.6, (box.x1 - box.x0) * 0.2) : opts.rise;
+    const segments = opts.segments || 36;
+    const sides = opts.sides || 12;
+    const radius = opts.radius || 0.64;
+    const span = Math.max(1, box.x1 - box.x0);
+    const rise = opts.rise === undefined ? Math.max(3.6, Math.min(11.5, span * 0.25)) : opts.rise;
     const out = {positions: [], colors: []};
-    const start = [box.x0, box.y + BLOCK_Y + BLOCK_SIZE * 0.4, box.z + BLOCK_SIZE / 2];
-    const end = [box.x1, box.y + BLOCK_Y + BLOCK_SIZE * 0.4, box.z + BLOCK_SIZE / 2];
-    const control = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2 + rise, start[2]];
 
     function pointAt(t) {
+      const start = [box.x0, box.y + BLOCK_Y + BLOCK_SIZE * 0.4, box.z + BLOCK_SIZE / 2];
+      const end = [box.x1, box.y + BLOCK_Y + BLOCK_SIZE * 0.4, box.z + BLOCK_SIZE / 2];
+      const control = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2 + rise, start[2]];
       const u = 1 - t;
       return [
         u * u * start[0] + 2 * u * t * control[0] + t * t * end[0],
@@ -654,7 +788,6 @@
       let tz = after[2] - before[2];
       const length = Math.hypot(tx, ty, tz) || 1;
       tx /= length; ty /= length; tz /= length;
-      // A reference direction that is never parallel to the tangent.
       const reference = Math.abs(ty) > 0.95 ? [1, 0, 0] : [0, 1, 0];
       let nx = reference[1] * tz - reference[2] * ty;
       let ny = reference[2] * tx - reference[0] * tz;
@@ -664,6 +797,8 @@
       const bx = ty * nz - tz * ny;
       const by = tz * nx - tx * nz;
       const bz = tx * ny - ty * nx;
+      const taper = 0.85 + 0.25 * Math.sin(t * Math.PI);
+      const r = radius * taper;
       const ring = [];
       for (let s = 0; s < sides; s++) {
         const angle = (s / sides) * Math.PI * 2;
@@ -673,7 +808,7 @@
         const dy = ny * cos + by * sin;
         const dz = nz * cos + bz * sin;
         ring.push({
-          point: [point[0] + dx * radius, point[1] + dy * radius, point[2] + dz * radius],
+          point: [point[0] + dx * r, point[1] + dy * r, point[2] + dz * r],
           normal: [dx, dy, dz],
         });
       }
@@ -683,12 +818,14 @@
     for (let i = 0; i < rings.length - 1; i++) {
       const a = rings[i];
       const b = rings[i + 1];
+      const archCrown = Math.sin((i / Math.max(1, rings.length - 1)) * Math.PI);
       for (let s = 0; s < sides; s++) {
         const next = (s + 1) % sides;
         const p0 = a[s], p1 = a[next], p2 = b[next], p3 = b[s];
-        // Shade by how far the surface faces upward, in flat steps.
         const up = (p0.normal[1] + p2.normal[1]) / 2;
-        const tone = 0.70 + 0.30 * (up * 0.5 + 0.5);
+        const front = (p0.normal[2] + p2.normal[2]) / 2;
+        const spec = up > 0.55 ? 0.18 * archCrown : 0;
+        const tone = 0.72 + 0.26 * (up * 0.5 + 0.5) + 0.08 * (front * 0.5 + 0.5) + spec;
         const color = toneColor(box.color, tone);
         pushTriangles(out, p0.point, p1.point, p2.point, color);
         pushTriangles(out, p0.point, p2.point, p3.point, color);
@@ -697,76 +834,205 @@
     return out;
   }
 
-  /** The flat slab a repository sits on. */
-  function buildPlatform(plane, bounds) {
+  /** The main structural slab a repository sits on. */
+  function buildPlatform(plane, bounds, palette) {
+    const pal = palette || PALETTE;
     const out = {positions: [], colors: []};
-    const top = PLATFORM_TOP;
-    const bottom = PLATFORM_TOP - PLATFORM_DEPTH_DOWN;
-    const x0 = bounds.minX - 4;
-    const x1 = bounds.maxX + 4;
-    const z0 = plane.z - 1.5;
-    const z1 = plane.z + PLANE_DEPTH * 0.74;
-    const topColor = toneColor(PALETTE.platform, 1.0);
-    const sideColor = toneColor(PALETTE.platformEdge, 1.0);
-    const darkColor = toneColor(PALETTE.platformEdge, 0.72);
-    const corners = [
-      [x0, top, z0], [x1, top, z0], [x1, top, z1], [x0, top, z1],
-      [x0, bottom, z0], [x1, bottom, z0], [x1, bottom, z1], [x0, bottom, z1],
-    ];
-    pushTriangles(out, corners[0], corners[1], corners[2], topColor);
-    pushTriangles(out, corners[0], corners[2], corners[3], topColor);
-    pushTriangles(out, corners[0], corners[5], corners[4], sideColor);
-    pushTriangles(out, corners[0], corners[1], corners[5], sideColor);
-    pushTriangles(out, corners[1], corners[2], corners[6], sideColor);
-    pushTriangles(out, corners[1], corners[6], corners[5], sideColor);
-    pushTriangles(out, corners[3], corners[7], corners[4], darkColor);
+    const x0 = bounds.minX - 5;
+    const x1 = bounds.maxX + 5;
+    const z0 = plane.z - 1.8;
+    const z1 = plane.z + PLANE_DEPTH * 0.68;
+    merge(out, buildCuboid(x0, x1, PLATFORM_TOP - PLATFORM_DEPTH_DOWN, PLATFORM_TOP, z0, z1, pal.platform));
     return out;
   }
 
-  /** A soft flat shadow cast by a block. */
-  function buildShadow(box) {
-    const out = {positions: [], colors: []};
-    const y = box.y + SHADOW_Y;
-    const x0 = box.x0 + 0.4;
-    const x1 = box.x0 + BLOCK_SIZE + 1.7;
-    const z0 = box.z + 0.5;
-    const z1 = box.z + BLOCK_SIZE + 1.0;
-    pushTriangles(out, [x0, y, z0], [x1, y, z0], [x1, y, z1], PALETTE.shadow);
-    pushTriangles(out, [x0, y, z0], [x1, y, z1], [x0, y, z1], PALETTE.shadow);
-    return out;
+  /**
+   * Rich 3D Server Deck Architecture for the live viewer:
+   * - Main base deck + dark lower chassis + front accent bar + left header pylon
+   * - Cantilevered Runner Compute Blades for multi-runner repositories (rowInRepo > 0)
+   *   supported by 3D vertical structural columns!
+   */
+  function buildDeckArchitecture(layout, palette) {
+    const pal = palette || PALETTE;
+    const solid = {positions: [], colors: []};
+    const outlines = {positions: [], colors: []};
+    const bounds = layout.bounds;
+    const x0 = bounds.minX - 5;
+    const x1 = bounds.maxX + 5;
+
+    layout.planes.forEach(function (plane, planeIdx) {
+      const z0 = plane.z - 1.8;
+      const z1 = plane.z + PLANE_DEPTH * 0.68;
+      // 1. Main top deck slab
+      merge(solid, buildCuboid(x0, x1, -0.55, PLATFORM_TOP, z0, z1, pal.platform));
+      // 2. Deep dark sub-chassis
+      merge(solid, buildCuboid(x0 + 0.6, x1 - 0.6, -PLATFORM_DEPTH_DOWN, -0.55, z0 + 0.4, z1 - 0.4, pal.platformEdge));
+      // 3. Left repository header block (server rack identification module)
+      const headerCol = mixColor(pal.platform, pal.platformRim || pal.grid, 0.45);
+      merge(solid, buildCuboid(x0 - 2.6, x0 - 0.2, -0.8, 0.65, z0 + 0.2, z0 + 5.2, headerCol));
+      // Glowing status strip on the header module
+      const stripCol = planeIdx % 2 === 0 ? (pal.nowLine || [0.22, 0.74, 0.97]) : (pal.highlight || [0.2, 0.9, 0.7]);
+      merge(solid, buildCuboid(x0 - 2.7, x0 - 2.4, -0.2, 0.45, z0 + 0.8, z0 + 4.6, stripCol));
+      // 4. Crisp deck rim outline
+      merge(outlines, buildCuboidEdges(x0, x1, -0.55, PLATFORM_TOP + 0.02, z0, z1, pal.platformRim || pal.grid, 1.001));
+    });
+
+    // 5. Elevated Cantilevered Runner Compute Blades (when a repo has multiple runners)
+    layout.rows.forEach(function (row) {
+      const rowY = (row.rowInRepo || 0) * ROW_HEIGHT;
+      const laneZ0 = row.z - 0.55;
+      const laneZ1 = row.z + BLOCK_SIZE + 0.55;
+      const bladeCol = pal.blade || toneColor(pal.platform, 1.12);
+      const pillarCol = pal.pillar || pal.platformRim || pal.grid;
+
+      if (rowY > 0.1) {
+        // Elevated cantilevered compute shelf for this runner tier
+        merge(solid, buildCuboid(bounds.minX - 2.5, bounds.maxX + 2.5, rowY - 0.28, rowY + 0.02, laneZ0, laneZ1, bladeCol));
+        merge(outlines, buildCuboidEdges(bounds.minX - 2.5, bounds.maxX + 2.5, rowY - 0.28, rowY + 0.02, laneZ0, laneZ1, pillarCol, 1.002));
+        // Left & right structural rack support columns down to the main deck
+        merge(solid, buildCuboid(bounds.minX - 2.2, bounds.minX - 1.3, 0, rowY - 0.28, row.z + 0.3, row.z + BLOCK_SIZE - 0.3, pillarCol));
+        merge(solid, buildCuboid(bounds.maxX + 1.3, bounds.maxX + 2.2, 0, rowY - 0.28, row.z + 0.3, row.z + BLOCK_SIZE - 0.3, pillarCol));
+      } else {
+        // Base runner lane guide track embedded on the main deck
+        merge(solid, buildCuboid(bounds.minX - 2.0, bounds.maxX + 2.0, 0.01, 0.07, laneZ0 + 0.2, laneZ1 - 0.2, bladeCol));
+      }
+    });
+
+    // 6. Live "NOW" Playhead Marker Bar at X = 100 across all decks
+    if (layout.planes.length > 0) {
+      const minZ = layout.bounds.minZ - 1.8;
+      const maxZ = layout.bounds.maxZ + PLANE_DEPTH * 0.68;
+      const nowCol = pal.nowLine || [0.22, 0.74, 0.97];
+      merge(solid, buildCuboid(99.75, 100.25, 0.02, 0.24, minZ, maxZ, nowCol));
+      // Front timeline ruler bar
+      const rulerZ = maxZ + 2.8;
+      merge(solid, buildCuboid(bounds.minX - 4, bounds.maxX + 4, -0.35, 0.05, rulerZ - 0.4, rulerZ + 0.4, pal.platformRim || pal.grid));
+      layout.ticks.forEach(function (tick) {
+        const isNow = tick.label === 'NOW';
+        const tickCol = isNow ? nowCol : (pal.platformRim || pal.grid);
+        merge(solid, buildCuboid(tick.x - 0.25, tick.x + 0.25, -0.2, isNow ? 0.55 : 0.28, rulerZ - 0.6, rulerZ + 0.6, tickCol));
+      });
+    }
+
+    return {solid: solid, outlines: outlines};
+  }
+
+  /**
+   * Build rich 3D Job Execution Hardware:
+   * - Base shadow & glowing runner-lane conduit rail
+   * - Start Terminal Pod + Top Status Beacon Cap
+   * - End Terminal Pod + Top Status Beacon Cap
+   * - 3D Octahedral/Diamond Energy Pulse Packets along the fiber arch
+   * - Focus highlight frame when hovered/selected
+   */
+  function buildJobHardware(box, pal, isFocus, timeSec) {
+    const solid = {positions: [], colors: []};
+    const outlines = {positions: [], colors: []};
+    const yBase = box.y;
+
+    // 1. Deck shadow pad & glowing duration rail along the compute blade
+    const xEnd = Math.max(box.x0 + BLOCK_SIZE + 0.8, box.x1 + BLOCK_SIZE * 0.5);
+    merge(solid, buildCuboid(box.x0 - 0.2, xEnd, yBase + 0.04, yBase + 0.11, box.z - 0.2, box.z + BLOCK_SIZE + 0.2, pal.shadow));
+
+    // Raised glowing conduit rail connecting start and end pods
+    const railCol = isFocus ? (pal.highlight || box.color) : toneColor(box.color, 0.82);
+    merge(solid, buildCuboid(box.x0, Math.max(box.x0 + BLOCK_SIZE, box.x1), yBase + 0.11, yBase + 0.26, box.z + BLOCK_SIZE * 0.32, box.z + BLOCK_SIZE * 0.68, railCol));
+
+    // 2. Start Terminal Pod (base block + upper beacon cap)
+    merge(solid, buildBlock(box));
+    const capInset = 0.36;
+    const capCol = toneColor(box.color, 1.22);
+    merge(solid, buildCuboid(
+      box.x0 + capInset, box.x0 + BLOCK_SIZE - capInset,
+      yBase + BLOCK_Y + BLOCK_SIZE * 0.8, yBase + BLOCK_Y + BLOCK_SIZE * 0.98,
+      box.z + capInset, box.z + BLOCK_SIZE - capInset,
+      capCol
+    ));
+    const edgePalette = isFocus ? {outline: pal.highlight || capCol} : pal;
+    merge(outlines, buildBlockEdges(box, edgePalette));
+
+    // 3. End Terminal Pod
+    const endSize = BLOCK_SIZE * 0.78;
+    const endOffset = (BLOCK_SIZE - endSize) / 2;
+    const ex0 = Math.max(box.x0 + BLOCK_SIZE * 0.65, box.x1 - endSize * 0.5);
+    const ex1 = ex0 + endSize;
+    const ey0 = yBase + BLOCK_Y;
+    const ey1 = yBase + BLOCK_Y + endSize * 0.82;
+    const ez0 = box.z + endOffset;
+    const ez1 = ez0 + endSize;
+    merge(solid, buildCuboid(ex0, ex1, ey0, ey1, ez0, ez1, box.color));
+    merge(solid, buildCuboid(ex0 + 0.25, ex1 - 0.25, ey1, ey1 + 0.26, ez0 + 0.25, ez1 - 0.25, capCol));
+    merge(outlines, buildCuboidEdges(ex0, ex1, ey0, ey1, ez0, ez1, edgePalette.outline, 1.04));
+
+    // 4. 3D Parabolic Fiber Optic Cable
+    merge(solid, buildCable(box, {
+      segments: 38,
+      sides: 14,
+      radius: isFocus ? 0.84 : 0.64,
+    }));
+
+    // 5. 3D Data Pulse Packets along the cable arch
+    const isRunning = box.status === 'in_progress' || box.conclusion === 'in_progress';
+    const pulseCount = isRunning ? 3 : 2;
+    const phase = isRunning && Number.isFinite(timeSec) ? (timeSec * 0.45) % 1 : 0.25;
+    const pulseCol = mixColor(box.color, [1, 1, 1], isRunning ? 0.55 : 0.35);
+    const pSize = isFocus ? 0.56 : 0.42;
+
+    for (let p = 0; p < pulseCount; p++) {
+      const t = ((p / pulseCount) + phase) % 1;
+      if (t < 0.08 || t > 0.92) continue;
+      const pt = cableCurvePoint(box, t);
+      merge(solid, buildCuboid(
+        pt[0] - pSize, pt[0] + pSize,
+        pt[1] - pSize, pt[1] + pSize,
+        pt[2] - pSize, pt[2] + pSize,
+        pulseCol
+      ));
+    }
+
+    // 6. Focus Selection Halo & Apex Drop-Line when hovered/selected
+    if (isFocus) {
+      const haloCol = pal.highlight || [0.22, 0.96, 0.74];
+      merge(outlines, buildCuboidEdges(
+        box.x0 - 0.4, Math.max(ex1, box.x1) + 0.4,
+        yBase + 0.05, yBase + 0.32,
+        box.z - 0.4, box.z + BLOCK_SIZE + 0.4,
+        haloCol, 1.01
+      ));
+      const apex = cableCurvePoint(box, 0.5);
+      pushLine(outlines, [apex[0], apex[1], apex[2]], [apex[0], yBase + 0.15, apex[2]], haloCol);
+    }
+
+    return {solid: solid, outlines: outlines};
   }
 
   /** The isometric ground grid: one line per runner row and per time tick. */
-  function buildGrid(layout) {
+  function buildGrid(layout, palette) {
+    const pal = palette || PALETTE;
     const out = {positions: [], colors: []};
     const maxZ = layout.bounds.maxZ + PLANE_DEPTH;
     layout.planes.forEach(function (plane) {
       pushLine(out,
         [layout.bounds.minX, PLATFORM_TOP + GRID_Y, plane.z],
-        [layout.bounds.maxX, PLATFORM_TOP + GRID_Y, plane.z], PALETTE.grid);
+        [layout.bounds.maxX, PLATFORM_TOP + GRID_Y, plane.z], pal.grid);
     });
     layout.ticks.forEach(function (tick) {
       pushLine(out,
         [tick.x, PLATFORM_TOP + GRID_Y, layout.bounds.minZ],
-        [tick.x, PLATFORM_TOP + GRID_Y, maxZ], PALETTE.grid);
+        [tick.x, PLATFORM_TOP + GRID_Y, maxZ], pal.grid);
     });
     layout.rows.forEach(function (row) {
       pushLine(out,
         [layout.bounds.minX, PLATFORM_TOP + GRID_Y + 0.02, row.z + PLANE_DEPTH * 0.37],
-        [layout.bounds.maxX, PLATFORM_TOP + GRID_Y + 0.02, row.z + PLANE_DEPTH * 0.37], PALETTE.grid);
+        [layout.bounds.maxX, PLATFORM_TOP + GRID_Y + 0.02, row.z + PLANE_DEPTH * 0.37], pal.grid);
     });
     return out;
   }
 
-  /**
-   * Faint circuit-trace artwork behind the data: right-angle paths with a pad
-   * at each end, laid out on a fixed lattice so it never changes between
-   * refreshes.
-   */
-  function buildTraces(layout) {
+  /** Faint circuit-trace artwork behind the data. */
+  function buildTraces(layout, palette) {
+    const pal = palette || PALETTE;
     const out = {positions: [], colors: []};
-    // Just below the platform surface, so a platform always draws over the
-    // artwork that passes beneath it.
     const y = PLATFORM_TOP - 0.05;
     const x0 = layout.bounds.minX - 26;
     const x1 = layout.bounds.maxX + 26;
@@ -794,21 +1060,20 @@
           alongX = !alongX;
         }
         for (let i = 0; i < points.length - 1; i++) {
-          pushLine(out, points[i], points[i + 1], PALETTE.trace);
+          pushLine(out, points[i], points[i + 1], pal.trace);
         }
-        // Pads: a short cross at each end of the trace.
         const first = points[0];
         const last = points[points.length - 1];
-        pushLine(out, [first[0] - 0.9, first[1], first[2]], [first[0] + 0.9, first[1], first[2]], PALETTE.trace);
-        pushLine(out, [first[0], first[1], first[2] - 0.9], [first[0], first[1], first[2] + 0.9], PALETTE.trace);
-        pushLine(out, [last[0] - 0.9, last[1], last[2]], [last[0] + 0.9, last[1], last[2]], PALETTE.trace);
-        pushLine(out, [last[0], last[1], last[2] - 0.9], [last[0], last[1], last[2] + 0.9], PALETTE.trace);
+        pushLine(out, [first[0] - 0.9, first[1], first[2]], [first[0] + 0.9, first[1], first[2]], pal.trace);
+        pushLine(out, [first[0], first[1], first[2] - 0.9], [first[0], first[1], first[2] + 0.9], pal.trace);
+        pushLine(out, [last[0] - 0.9, last[1], last[2]], [last[0] + 0.9, last[1], last[2]], pal.trace);
+        pushLine(out, [last[0], last[1], last[2] - 0.9], [last[0], last[1], last[2] + 0.9], pal.trace);
       }
     }
     return out;
   }
 
-  // --- WebGL rendering -------------------------------------------------------
+  // --- WebGL2 Shaders with Per-Pixel Derivative Lighting & Micro-Grid --------
 
   const VERTEX_SHADER = [
     '#version 300 es',
@@ -816,18 +1081,54 @@
     'in vec3 aColor;',
     'uniform mat4 uMVP;',
     'out vec3 vColor;',
+    'out vec3 vWorldPos;',
+    'out vec2 vNdc;',
     'void main() {',
     '  vColor = aColor;',
-    '  gl_Position = uMVP * vec4(aPosition, 1.0);',
+    '  vWorldPos = aPosition;',
+    '  vec4 clip = uMVP * vec4(aPosition, 1.0);',
+    '  gl_Position = clip;',
+    '  vNdc = clip.xy / max(0.0001, clip.w);',
     '}',
   ].join('\n');
 
   const FRAGMENT_SHADER = [
     '#version 300 es',
-    'precision mediump float;',
+    'precision highp float;',
     'in vec3 vColor;',
+    'in vec3 vWorldPos;',
+    'in vec2 vNdc;',
     'out vec4 fragColor;',
-    'void main() { fragColor = vec4(vColor, 1.0); }',
+    'void main() {',
+    '  vec3 dx = dFdx(vWorldPos);',
+    '  vec3 dy = dFdy(vWorldPos);',
+    '  vec3 crossN = cross(dx, dy);',
+    '  float nLen = length(crossN);',
+    '  vec3 color = vColor;',
+    '  if (nLen > 1e-6) {',
+    '    vec3 N = crossN / nLen;',
+    '    if (N.y < 0.0 && abs(N.x) < 0.2 && abs(N.z) < 0.2) N = -N;',
+    '    vec3 keyDir = normalize(vec3(-0.42, 0.82, 0.38));',
+    '    vec3 fillDir = normalize(vec3(0.65, 0.35, -0.65));',
+    '    vec3 viewDir = normalize(vec3(-0.5, 0.65, 0.58));',
+    '    float diffKey = max(0.0, dot(N, keyDir));',
+    '    float diffFill = max(0.0, dot(N, fillDir));',
+    '    vec3 H = normalize(keyDir + viewDir);',
+    '    float spec = pow(max(0.0, dot(N, H)), 24.0);',
+    '    float lighting = 0.66 + 0.32 * diffKey + 0.10 * diffFill;',
+    '    color = vColor * lighting + vec3(0.11, 0.13, 0.16) * spec;',
+    '    // Subtle precision engineering micro-grid on horizontal deck surfaces',
+    '    if (abs(N.y) > 0.85 && vWorldPos.y >= -0.05 && vWorldPos.y <= 0.08) {',
+    '      vec2 gridUV = abs(fract(vWorldPos.xz * 0.35 - 0.5) - 0.5) / fwidth(vWorldPos.xz * 0.35);',
+    '      float line = min(gridUV.x, gridUV.y);',
+    '      float gridFactor = 1.0 - smoothstep(0.0, 1.35, line);',
+    '      color = mix(color, color * 1.16 + vec3(0.03, 0.05, 0.08), gridFactor * 0.32);',
+    '    }',
+    '  }',
+    '  float dist = length(vNdc * vec2(0.82, 0.92));',
+    '  float vignette = clamp(1.0 - dist * dist * 0.11, 0.84, 1.0);',
+    '  fragColor = vec4(clamp(color * vignette, 0.0, 1.0), 1.0);',
+    '}',
   ].join('\n');
 
   function compile(gl, type, source) {
@@ -854,14 +1155,17 @@
   }
 
   function merge(target, source) {
-    target.positions = target.positions.concat(source.positions);
-    target.colors = target.colors.concat(source.colors);
+    for (let i = 0; i < source.positions.length; i++) {
+      target.positions.push(source.positions[i]);
+    }
+    for (let i = 0; i < source.colors.length; i++) {
+      target.colors.push(source.colors[i]);
+    }
     return target;
   }
 
   /**
-   * Build the viewer. Returns null when the browser has no WebGL2 support, so
-   * the dashboard can fall back to the flat views instead of failing.
+   * Build the interactive WebGL2 3D viewer. Returns null when WebGL2 is unavailable.
    */
   function createViewer(canvas, options) {
     const opts = options || {};
@@ -887,23 +1191,34 @@
       colorLocation = gl.getAttribLocation(program, 'aColor');
       mvpLocation = gl.getUniformLocation(program, 'uMVP');
     } catch (error) {
-      // A partial or broken WebGL implementation must not break the dashboard.
       return null;
     }
 
     const camera = createCamera();
-    let layout = buildLayout([], {now: Date.now()});
-    let triangles = {positions: [], colors: []};
-    let lines = {positions: [], colors: []};
+    let currentThemeName = opts.theme && THEMES[opts.theme] ? opts.theme : 'light';
+    let currentWindowMs = Number.isFinite(opts.windowMs) && opts.windowMs > 0 ? opts.windowMs : 60 * MINUTE;
+    let rawJobsList = [];
+    let lastNowMs = Date.now();
+    let layout = buildLayout([], {now: lastNowMs, windowMs: currentWindowMs});
+    let triangles = {positions: [], colors: [], count: 0};
+    let lines = {positions: [], colors: [], count: 0};
     let backgroundLineCount = 0;
     let hovered = null;
     let selected = null;
+    let autoOrbit = false;
+    let animFrame = null;
+    let cameraTween = null;
     let disposed = false;
-    const listeners = {hover: [], select: []};
+    const listeners = {hover: [], select: [], camera: []};
+
+    function activeTheme() {
+      return THEMES[currentThemeName] || THEMES.light;
+    }
 
     function notify(name, payload) {
+      if (!listeners[name]) return;
       listeners[name].forEach(function (handler) {
-        try { handler(payload); } catch (error) { /* a listener must not break the render */ }
+        try { handler(payload); } catch (error) { /* ignore listener errors */ }
       });
     }
 
@@ -915,27 +1230,35 @@
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(values.colors), gl.DYNAMIC_DRAW);
     }
 
-    function buildScene() {
-      const solid = {positions: [], colors: []};
-      const outlines = {positions: [], colors: []};
-      const traceLines = buildTraces(layout);
-      const gridLines = buildGrid(layout);
+    function buildScene(timeSec) {
+      const theme = activeTheme();
+      const pal = theme.palette;
+      const cols = theme.colors;
+      const solid = {positions: [], colors: [], count: 0};
+      const outlines = {positions: [], colors: [], count: 0};
+      const traceLines = buildTraces(layout, pal);
+      const gridLines = buildGrid(layout, pal);
 
-      layout.planes.forEach(function (plane) {
-        merge(solid, buildPlatform(plane, layout.bounds));
-      });
+      const deckArch = buildDeckArchitecture(layout, pal);
+      merge(solid, deckArch.solid);
+      merge(outlines, deckArch.outlines);
+
       layout.boxes.forEach(function (box) {
-        merge(solid, buildShadow(box));
-        merge(solid, buildCable(box));
-        merge(solid, buildBlock(box));
-        merge(outlines, buildBlockEdges(box));
+        const isFocus = (hovered && hovered.key === box.key) || (selected && selected.key === box.key);
+        const baseCol = colorFor(box.conclusion, box.status, cols);
+        const activeCol = isFocus ? toneColor(baseCol, 1.2) : baseCol;
+        const themedBox = Object.assign({}, box, {
+          color: activeCol,
+        });
+        const hw = buildJobHardware(themedBox, pal, isFocus, timeSec || 0);
+        merge(solid, hw.solid);
+        merge(outlines, hw.outlines);
       });
 
-      // One line buffer holds the background artwork first and the block
-      // outlines last, so both can be drawn from it with an offset.
       const allLines = {
         positions: traceLines.positions.concat(gridLines.positions, outlines.positions),
         colors: traceLines.colors.concat(gridLines.colors, outlines.colors),
+        count: 0,
       };
       upload(solid, triBuffer, triColorBuffer, solid);
       upload(allLines, lineBuffer, lineColorBuffer, allLines);
@@ -951,7 +1274,7 @@
     }
 
     function resize() {
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      const ratio = Math.min((typeof window !== 'undefined' && window.devicePixelRatio) || 1, 2);
       const width = Math.max(1, Math.floor((canvas.clientWidth || canvas.width || 1) * ratio));
       const height = Math.max(1, Math.floor((canvas.clientHeight || canvas.height || 1) * ratio));
       if (canvas.width !== width || canvas.height !== height) {
@@ -972,8 +1295,9 @@
 
     function draw() {
       if (disposed) return;
+      const pal = activeTheme().palette;
       resize();
-      gl.clearColor(PALETTE.ground[0], PALETTE.ground[1], PALETTE.ground[2], 1);
+      gl.clearColor(pal.ground[0], pal.ground[1], pal.ground[2], 1);
       gl.enable(gl.DEPTH_TEST);
       gl.depthFunc(gl.LEQUAL);
       gl.disable(gl.BLEND);
@@ -983,33 +1307,43 @@
       gl.useProgram(program);
       gl.uniformMatrix4fv(mvpLocation, false, mvp);
 
-      // The faint circuit artwork and the ground grid sit behind everything and
-      // write no depth, so the platforms draw cleanly over them.
       gl.depthMask(false);
       bindAttributes(lineBuffer, lineColorBuffer);
       gl.drawArrays(gl.LINES, 0, backgroundLineCount);
       gl.depthMask(true);
 
-      // The solids: shadows, platforms, cables and blocks.
       bindAttributes(triBuffer, triColorBuffer);
       gl.drawArrays(gl.TRIANGLES, 0, triangles.count);
 
-      // The outlines last, so they sit on top of the blocks they belong to.
       bindAttributes(lineBuffer, lineColorBuffer);
       gl.drawArrays(gl.LINES, backgroundLineCount, lines.count - backgroundLineCount);
+      notify('camera', camera);
     }
 
-    function boxBounds(box) {
-      return {
-        min: [box.x0, box.y + BLOCK_Y, box.z],
-        max: [box.x0 + BLOCK_SIZE, box.y + BLOCK_Y + BLOCK_SIZE * 0.8, box.z + BLOCK_SIZE],
-      };
+    function boxCandidateBounds(box) {
+      const candidates = [
+        // Start terminal pod
+        {
+          min: [box.x0 - 0.35, box.y + BLOCK_Y, box.z - 0.35],
+          max: [box.x0 + BLOCK_SIZE + 0.35, box.y + BLOCK_Y + BLOCK_SIZE * 1.05, box.z + BLOCK_SIZE + 0.35],
+        },
+        // End terminal + deck track
+        {
+          min: [box.x0, box.y, box.z - 0.25],
+          max: [box.x1 + BLOCK_SIZE * 0.55, box.y + BLOCK_Y + BLOCK_SIZE * 0.95, box.z + BLOCK_SIZE + 0.25],
+        },
+      ];
+      // Sample points along the 3D cable arch so hovering any part of the arc hits the job
+      for (let step = 1; step <= 7; step++) {
+        const pt = cableCurvePoint(box, step / 8);
+        candidates.push({
+          min: [pt[0] - 1.5, pt[1] - 1.3, pt[2] - 1.3],
+          max: [pt[0] + 1.5, pt[1] + 1.3, pt[2] + 1.3],
+        });
+      }
+      return candidates;
     }
 
-    /**
-     * Project a world point to CSS pixels inside the canvas, so the dashboard
-     * can pin axis labels to the scene without a second render pass.
-     */
     function projectToScreen(point) {
       const rect = canvas.getBoundingClientRect();
       const width = rect.width || canvas.clientWidth || 1;
@@ -1038,10 +1372,13 @@
       let best = null;
       let bestDistance = Infinity;
       layout.boxes.forEach(function (box) {
-        const hit = rayBox(origin, direction, boxBounds(box));
-        if (hit !== null && hit < bestDistance) {
-          bestDistance = hit;
-          best = box;
+        const boundsList = boxCandidateBounds(box);
+        for (let i = 0; i < boundsList.length; i++) {
+          const hit = rayBox(origin, direction, boundsList[i]);
+          if (hit !== null && hit < bestDistance) {
+            bestDistance = hit;
+            best = box;
+          }
         }
       });
       return best;
@@ -1051,17 +1388,133 @@
     let lastX = 0;
     let lastY = 0;
     let moved = 0;
+    const activePointers = new Map();
+    let lastPinchDist = 0;
+    let lastPinchMidX = 0;
+    let lastPinchMidY = 0;
+
+    function ensureLoop() {
+      if (disposed || animFrame) return;
+      if (!autoOrbit && !cameraTween) return;
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        animFrame = window.requestAnimationFrame(stepLoop);
+      }
+    }
+
+    function stepLoop(timestamp) {
+      animFrame = null;
+      if (disposed) return;
+      let needsDraw = false;
+      if (cameraTween) {
+        const elapsed = Math.min(1, (timestamp - cameraTween.startMs) / cameraTween.durationMs);
+        const ease = 1 - Math.pow(1 - elapsed, 3);
+        camera.yaw = cameraTween.fromYaw + (cameraTween.toYaw - cameraTween.fromYaw) * ease;
+        camera.pitch = cameraTween.fromPitch + (cameraTween.toPitch - cameraTween.fromPitch) * ease;
+        camera.distance = cameraTween.fromDist + (cameraTween.toDist - cameraTween.fromDist) * ease;
+        camera.target[0] = cameraTween.fromTarget[0] + (cameraTween.toTarget[0] - cameraTween.fromTarget[0]) * ease;
+        camera.target[1] = cameraTween.fromTarget[1] + (cameraTween.toTarget[1] - cameraTween.fromTarget[1]) * ease;
+        camera.target[2] = cameraTween.fromTarget[2] + (cameraTween.toTarget[2] - cameraTween.fromTarget[2]) * ease;
+        if (elapsed >= 1) cameraTween = null;
+        needsDraw = true;
+      } else if (autoOrbit && !dragging && !hovered) {
+        orbit(camera, 0.0035, 0);
+        buildScene((timestamp || 0) * 0.001);
+        needsDraw = true;
+      }
+      if (needsDraw) draw();
+      ensureLoop();
+    }
+
+    function setAutoOrbit(enabled) {
+      autoOrbit = Boolean(enabled);
+      if (autoOrbit) {
+        ensureLoop();
+      } else if (!cameraTween && animFrame && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(animFrame);
+        animFrame = null;
+      }
+      return autoOrbit;
+    }
+
+    function setPreset(preset) {
+      const targetCam = createCamera();
+      frameLayout(targetCam, layout, currentAspect());
+      if (preset === 'top') {
+        targetCam.yaw = 0;
+        targetCam.pitch = Math.PI / 2 - 0.06;
+      } else if (preset === 'front') {
+        targetCam.yaw = 0;
+        targetCam.pitch = 0.18;
+      } else if (preset === 'side') {
+        targetCam.yaw = -Math.PI / 2 + 0.08;
+        targetCam.pitch = 0.28;
+      } else {
+        targetCam.yaw = ISO_YAW;
+        targetCam.pitch = ISO_PITCH;
+      }
+      if (typeof window !== 'undefined' && typeof window.performance !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        cameraTween = {
+          startMs: window.performance.now(),
+          durationMs: 360,
+          fromYaw: camera.yaw,
+          toYaw: targetCam.yaw,
+          fromPitch: camera.pitch,
+          toPitch: targetCam.pitch,
+          fromDist: camera.distance,
+          toDist: targetCam.distance,
+          fromTarget: camera.target.slice(),
+          toTarget: targetCam.target.slice(),
+        };
+        ensureLoop();
+      } else {
+        camera.yaw = targetCam.yaw;
+        camera.pitch = targetCam.pitch;
+        camera.distance = targetCam.distance;
+        camera.target = targetCam.target.slice();
+      }
+      draw();
+    }
 
     function onPointerDown(event) {
+      const pid = event.pointerId !== undefined ? event.pointerId : 0;
+      activePointers.set(pid, {x: event.clientX, y: event.clientY});
       dragging = true;
-      moved = 0;
-      lastX = event.clientX;
-      lastY = event.clientY;
+      cameraTween = null;
+      if (activePointers.size === 1) {
+        moved = 0;
+        lastX = event.clientX;
+        lastY = event.clientY;
+      } else if (activePointers.size === 2) {
+        const pts = Array.from(activePointers.values());
+        lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        lastPinchMidX = (pts[0].x + pts[1].x) * 0.5;
+        lastPinchMidY = (pts[0].y + pts[1].y) * 0.5;
+        moved = 99;
+      }
       canvas.setPointerCapture && canvas.setPointerCapture(event.pointerId);
     }
 
     function onPointerMove(event) {
+      const pid = event.pointerId !== undefined ? event.pointerId : 0;
+      if (activePointers.has(pid)) {
+        activePointers.set(pid, {x: event.clientX, y: event.clientY});
+      }
       if (dragging) {
+        if (activePointers.size >= 2) {
+          const pts = Array.from(activePointers.values());
+          const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+          const midX = (pts[0].x + pts[1].x) * 0.5;
+          const midY = (pts[0].y + pts[1].y) * 0.5;
+          if (lastPinchDist > 0) {
+            zoom(camera, (lastPinchDist - dist) * 3.2);
+            pan(camera, midX - lastPinchMidX, midY - lastPinchMidY);
+          }
+          lastPinchDist = dist;
+          lastPinchMidX = midX;
+          lastPinchMidY = midY;
+          draw();
+          return;
+        }
         const deltaX = event.clientX - lastX;
         const deltaY = event.clientY - lastY;
         lastX = event.clientX;
@@ -1077,30 +1530,45 @@
       if (key !== (hovered ? hovered.key : null)) {
         hovered = hit;
         canvas.style.cursor = hit ? 'pointer' : 'grab';
+        buildScene();
         notify('hover', hit);
         draw();
       }
     }
 
     function onPointerUp(event) {
+      const pid = event.pointerId !== undefined ? event.pointerId : 0;
+      activePointers.delete(pid);
+      canvas.releasePointerCapture && canvas.releasePointerCapture(event.pointerId);
+      if (activePointers.size === 1) {
+        const remaining = Array.from(activePointers.values())[0];
+        lastX = remaining.x;
+        lastY = remaining.y;
+        lastPinchDist = 0;
+        return;
+      }
       if (!dragging) return;
       dragging = false;
-      canvas.releasePointerCapture && canvas.releasePointerCapture(event.pointerId);
-      if (moved < 4) {
+      lastPinchDist = 0;
+      if (moved < 8) {
         const hit = pickAt(event.clientX, event.clientY);
         selected = hit;
+        buildScene();
         notify('select', hit);
+        draw();
       }
     }
 
     function onWheel(event) {
       event.preventDefault();
+      cameraTween = null;
       zoom(camera, event.deltaY);
       draw();
     }
 
     function onKeyDown(event) {
       const step = 0.12;
+      cameraTween = null;
       if (event.key === 'ArrowLeft') orbit(camera, step, 0);
       else if (event.key === 'ArrowRight') orbit(camera, -step, 0);
       else if (event.key === 'ArrowUp') orbit(camera, 0, step);
@@ -1120,7 +1588,7 @@
     canvas.addEventListener('wheel', onWheel, {passive: false});
     canvas.addEventListener('keydown', onKeyDown);
     canvas.addEventListener('mouseleave', function () {
-      if (hovered) { hovered = null; notify('hover', null); draw(); }
+      if (hovered) { hovered = null; buildScene(); notify('hover', null); draw(); }
     });
 
     buildScene();
@@ -1129,8 +1597,20 @@
     return {
       camera: camera,
       getLayout: function () { return layout; },
+      getTheme: function () { return currentThemeName; },
+      setTheme: function (themeName) {
+        if (THEMES[themeName]) {
+          currentThemeName = themeName;
+          buildScene();
+          draw();
+        }
+      },
       setJobs: function (jobs, setOptions) {
-        layout = buildLayout(jobs, setOptions);
+        rawJobsList = Array.isArray(jobs) ? jobs : [];
+        const optsWithWin = Object.assign({windowMs: currentWindowMs}, setOptions || {});
+        if (optsWithWin.windowMs) currentWindowMs = optsWithWin.windowMs;
+        if (Number.isFinite(optsWithWin.now)) lastNowMs = optsWithWin.now;
+        layout = buildLayout(rawJobsList, optsWithWin);
         hovered = null;
         selected = null;
         frameLayout(camera, layout, currentAspect());
@@ -1139,16 +1619,22 @@
         notify('hover', null);
         notify('select', null);
       },
-      setWindow: function (windowMs) {
-        layout = buildLayout(layout.boxes.map(function (box) { return box.job; }), {
-          now: Date.now(), windowMs: windowMs,
+      setWindow: function (windowMs, nowOverride) {
+        if (Number.isFinite(windowMs) && windowMs > 0) currentWindowMs = windowMs;
+        if (Number.isFinite(nowOverride)) lastNowMs = nowOverride;
+        layout = buildLayout(rawJobsList, {
+          now: lastNowMs, windowMs: currentWindowMs,
         });
+        frameLayout(camera, layout, currentAspect());
         buildScene();
         draw();
       },
-      reset: function () { resetCamera(camera); frameLayout(camera, layout, currentAspect()); draw(); },
-      rotate: function (delta) { orbit(camera, delta, 0); draw(); },
-      zoomBy: function (delta) { zoom(camera, delta); draw(); },
+      setPreset: setPreset,
+      setAutoOrbit: setAutoOrbit,
+      isAutoOrbit: function () { return autoOrbit; },
+      reset: function () { cameraTween = null; resetCamera(camera); frameLayout(camera, layout, currentAspect()); draw(); },
+      rotate: function (delta) { cameraTween = null; orbit(camera, delta, 0); draw(); },
+      zoomBy: function (delta) { cameraTween = null; zoom(camera, delta); draw(); },
       draw: draw,
       pickAt: pickAt,
       projectToScreen: projectToScreen,
@@ -1158,6 +1644,8 @@
       },
       dispose: function () {
         disposed = true;
+        cameraTween = null;
+        setAutoOrbit(false);
         canvas.removeEventListener('pointerdown', onPointerDown);
         canvas.removeEventListener('pointermove', onPointerMove);
         canvas.removeEventListener('pointerup', onPointerUp);
@@ -1201,5 +1689,6 @@
     ISO_PITCH: ISO_PITCH,
     PALETTE: PALETTE,
     COLORS: COLORS,
+    THEMES: THEMES,
   };
 });

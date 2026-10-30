@@ -37,6 +37,12 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn('javascript', content_type)
         self.assertIn(b'createViewer', body)
 
+    def test_recharts_is_served_as_javascript(self):
+        status, content_type, body = self.fetch('/recharts.js')
+        self.assertEqual(status, 200)
+        self.assertIn('javascript', content_type)
+        self.assertGreater(len(body), 100000)
+
     def test_the_3d_engine_is_served_with_the_same_security_headers(self):
         with urllib.request.urlopen(self.origin + '/fleet3d.js', timeout=10) as response:
             self.assertEqual(response.headers.get('X-Content-Type-Options'), 'nosniff')

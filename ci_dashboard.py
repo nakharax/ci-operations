@@ -141,6 +141,10 @@ class H(BaseHTTPRequestHandler):
             with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fleet3d.js'), 'rb') as source:
                 body = source.read()
             ct = 'text/javascript; charset=utf-8'
+        elif path == '/recharts.js':
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'recharts.js'), 'rb') as source:
+                body = source.read()
+            ct = 'text/javascript; charset=utf-8'
         else:
             self.send_error(404)
             return
@@ -148,7 +152,7 @@ class H(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(body)))
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; object-src 'none'; base-uri 'none'")
         self.send_header("Content-Type", ct); self.send_header("Cache-Control", "no-store")
         self.end_headers(); self.wfile.write(body)
 
