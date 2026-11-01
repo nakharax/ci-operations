@@ -34,6 +34,8 @@ jobs:
         run: python -m unittest discover -p 'test_*.py' -v
       - name: Run frontend tests
         run: node --test test_frontend.cjs test_fleet3d.cjs
+      - name: Verify Python wheel builds
+        run: python -m pip wheel --no-deps --wheel-dir "${{ runner.temp }}/ci-operations-wheels" .
       - name: Install packaging dependencies
         run: python -m pip install -r requirements-desktop.txt
       - name: Build Windows application
